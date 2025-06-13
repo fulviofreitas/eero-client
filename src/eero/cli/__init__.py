@@ -4,9 +4,8 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Optional
 
-import typer
+import click
 from rich.console import Console
 from rich.logging import RichHandler
 
@@ -21,103 +20,61 @@ logging.basicConfig(
     handlers=[RichHandler(console=console, rich_tracebacks=True)],
 )
 
-# Create Typer app
-app = typer.Typer(
-    name="eero",
-    help="Eero network management command-line tool",
-    add_completion=True,
-    rich_markup_mode="rich",
-)
 
-# Import subcommands modules here to avoid circular imports
-from .auth import login_commands
-from .devices import devices_commands
-from .eeros import eeros_commands
-from .guest import guest_network_commands
-from .networks import networks_commands
-from .profiles import profiles_commands
-from .speedtest import speedtest_command
-
-# Add subcommands
-app.add_typer(login_commands, name="auth", help="Authentication commands")
-app.add_typer(networks_commands, name="networks", help="Network management commands")
-app.add_typer(eeros_commands, name="eeros", help="Eero device commands")
-app.add_typer(devices_commands, name="devices", help="Device management commands")
-app.add_typer(profiles_commands, name="profiles", help="Profile management commands")
-
-# Add standalone commands
-app.command(name="speedtest")(speedtest_command)
-app.command(name="guest-network")(guest_network_commands)
-
-
-def get_config_dir() -> Path:
-    """Get the configuration directory.
-
-    Returns:
-        Path to the configuration directory
-    """
-    if sys.platform == "win32":
-        config_dir = Path(os.environ["APPDATA"]) / "eero-client"
-    else:
-        config_dir = Path.home() / ".config" / "eero-client"
-
-    config_dir.mkdir(parents=True, exist_ok=True)
-    return config_dir
-
-
-def get_cookie_file() -> Path:
-    """Get the cookie file path.
-
-    Returns:
-        Path to the cookie file
-    """
-    return get_config_dir() / "cookies.json"
-
-
-def get_config_file() -> Path:
-    """Get the config file path.
-
-    Returns:
-        Path to the config file
-    """
-    return get_config_dir() / "config.json"
-
-
-@app.callback()
-def main(
-    ctx: typer.Context,
-    debug: bool = typer.Option(False, "--debug", help="Enable debug logging"),
-    use_keyring: bool = typer.Option(
-        True,
-        "--no-keyring",
-        help="Don't use keyring for secure token storage",
-        show_default=False,
-    ),
-):
+@click.group()
+@click.option("--debug", is_flag=True, help="Enable debug logging")
+def cli(debug: bool):
     """Eero network management command-line tool."""
-    # Set up the console
-    ctx.ensure_object(dict)
-    ctx.obj["console"] = console
-
-    # Update logging level if debug mode is enabled
     if debug:
-        logging.getLogger().setLevel(logging.DEBUG)
-        logging.debug("Debug logging enabled")
-
-    # Store configuration options in context
-    ctx.obj["use_keyring"] = use_keyring
-    ctx.obj["cookie_file"] = str(get_cookie_file()) if not use_keyring else None
-
-    # Display version information
-    from .. import __version__
-
-    console.print(f"Eero Client v{__version__}")
+        logging.basicConfig(level=logging.DEBUG)
+    else:
+        logging.basicConfig(level=logging.WARNING)
 
 
-def run():
-    """Run the CLI application."""
+# Import and add commands
+from .auth import login, logout, resend_code
+from .devices import block_device, device, devices, rename_device
+from .eeros import eero, eeros, reboot
+from .guest import guest_network
+from .networks import network, networks, set_network
+from .profiles import pause_profile, profile, profiles
+from .speedtest import speedtest
+
+# Register all commands
+cli.add_command(login, name="login")
+cli.add_command(logout, name="logout")
+cli.add_command(resend_code, name="resend-code")
+
+cli.add_command(networks, name="networks")
+cli.add_command(network, name="network")
+cli.add_command(set_network, name="set-network")
+
+cli.add_command(eeros, name="eeros")
+cli.add_command(eero, name="eero")
+cli.add_command(reboot, name="reboot")
+
+cli.add_command(devices, name="devices")
+cli.add_command(device, name="device")
+cli.add_command(rename_device, name="rename-device")
+cli.add_command(block_device, name="block-device")
+
+cli.add_command(profiles, name="profiles")
+cli.add_command(profile, name="profile")
+cli.add_command(pause_profile, name="pause-profile")
+
+cli.add_command(guest_network, name="guest-network")
+cli.add_command(speedtest, name="speedtest")
+
+
+def main():
+    """Main entry point for the CLI."""
     try:
-        app()
+        # Display version information
+        from .. import __version__
+
+        console.print(f"Eero Client v{__version__}")
+
+        cli()
     except Exception as ex:
         console.print(f"[bold red]Error:[/bold red] {ex}")
         if logging.getLogger().level == logging.DEBUG:
@@ -125,5 +82,10 @@ def run():
         sys.exit(1)
 
 
+def run():
+    """Run function called by entry point."""
+    main()
+
+
 if __name__ == "__main__":
-    run()
+    main()

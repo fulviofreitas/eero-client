@@ -4,14 +4,13 @@ import asyncio
 import sys
 from typing import Optional
 
-import typer
+import click
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 
 from ..client import EeroClient
 from ..exceptions import EeroException
-
-login_commands = typer.Typer(help="Authentication commands")
+from .utils import console, get_cookie_file
 
 
 async def interactive_login(client: EeroClient) -> bool:
@@ -23,7 +22,6 @@ async def interactive_login(client: EeroClient) -> bool:
     Returns:
         True if login was successful
     """
-    console = typer.get_app().state.console
     attempts = 0
     max_attempts = 3
     user_identifier = None
@@ -95,35 +93,23 @@ async def interactive_login(client: EeroClient) -> bool:
     return False
 
 
-@login_commands.command(name="login")
-def login_command():
+@click.command()
+def login():
     """Login to your Eero account."""
-    ctx = typer.Context.get_current()
-    console = ctx.obj["console"]
-    cookie_file = ctx.obj["cookie_file"]
-    use_keyring = ctx.obj["use_keyring"]
 
     async def run():
-        async with EeroClient(
-            cookie_file=cookie_file, use_keyring=use_keyring
-        ) as client:
+        async with EeroClient(cookie_file=str(get_cookie_file())) as client:
             await interactive_login(client)
 
     asyncio.run(run())
 
 
-@login_commands.command(name="logout")
-def logout_command():
+@click.command()
+def logout():
     """Logout from your Eero account."""
-    ctx = typer.Context.get_current()
-    console = ctx.obj["console"]
-    cookie_file = ctx.obj["cookie_file"]
-    use_keyring = ctx.obj["use_keyring"]
 
     async def run():
-        async with EeroClient(
-            cookie_file=cookie_file, use_keyring=use_keyring
-        ) as client:
+        async with EeroClient(cookie_file=str(get_cookie_file())) as client:
             if not client.is_authenticated:
                 console.print("[bold red]Not logged in[/bold red]")
                 return
@@ -144,18 +130,12 @@ def logout_command():
     asyncio.run(run())
 
 
-@login_commands.command(name="resend-code")
-def resend_code_command():
+@click.command()
+def resend_code():
     """Resend verification code during login process."""
-    ctx = typer.Context.get_current()
-    console = ctx.obj["console"]
-    cookie_file = ctx.obj["cookie_file"]
-    use_keyring = ctx.obj["use_keyring"]
 
     async def run():
-        async with EeroClient(
-            cookie_file=cookie_file, use_keyring=use_keyring
-        ) as client:
+        async with EeroClient(cookie_file=str(get_cookie_file())) as client:
             # Check if we have a user token but not authenticated yet
             if client._api.auth._user_token and not client.is_authenticated:
                 with console.status("Resending verification code..."):
@@ -192,7 +172,7 @@ def resend_code_command():
                     "[bold yellow]No active login attempt found.[/bold yellow]"
                 )
                 console.print(
-                    "[bold yellow]Please start a new login process with 'eero auth login'[/bold yellow]"
+                    "[bold yellow]Please start a new login process with 'eero login'[/bold yellow]"
                 )
 
     asyncio.run(run())

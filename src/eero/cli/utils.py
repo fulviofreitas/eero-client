@@ -4,20 +4,17 @@ import asyncio
 import json
 import os
 import sys
-from functools import wraps
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, TypeVar, cast
+from typing import Any, Callable, Dict, Optional
 
-import typer
 from rich.console import Console
-from rich.prompt import Confirm, Prompt
+from rich.prompt import Confirm
 
 from ..client import EeroClient
 from ..exceptions import EeroException
-from .auth import interactive_login
 
-# Type for async functions that accept an EeroClient
-F = TypeVar("F", bound=Callable[..., Any])
+# Create console for rich output
+console = Console()
 
 
 def get_config_dir() -> Path:
@@ -33,6 +30,15 @@ def get_config_dir() -> Path:
 
     config_dir.mkdir(parents=True, exist_ok=True)
     return config_dir
+
+
+def get_cookie_file() -> Path:
+    """Get the cookie file path.
+
+    Returns:
+        Path to the cookie file
+    """
+    return get_config_dir() / "cookies.json"
 
 
 def get_config_file() -> Path:
@@ -90,45 +96,30 @@ def set_preferred_network(network_id: str) -> None:
     save_config(config)
 
 
-def with_eero_client(func: F) -> F:
-    """Decorator to run a function with an authenticated EeroClient.
+async def run_with_client(func: Callable[[EeroClient], Any]) -> Any:
+    """Run a function with an authenticated EeroClient.
 
     Args:
-        func: Async function to decorate that accepts an EeroClient as first arg
+        func: Async function to run with client
 
     Returns:
-        Decorated function
+        Result of the function call
     """
+    from .auth import interactive_login
 
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        ctx = typer.Context.get_current()
-        console = ctx.obj.get("console", Console())
-        cookie_file = ctx.obj.get("cookie_file")
-        use_keyring = ctx.obj.get("use_keyring", True)
+    async with EeroClient(cookie_file=str(get_cookie_file())) as client:
+        if not client.is_authenticated:
+            console.print("[bold yellow]Not authenticated. Please login.[/bold yellow]")
+            if not await interactive_login(client):
+                return None
 
-        async def run_with_client():
-            async with EeroClient(
-                cookie_file=cookie_file, use_keyring=use_keyring
-            ) as client:
-                if not client.is_authenticated:
-                    console.print(
-                        "[bold yellow]Not authenticated. Please login.[/bold yellow]"
-                    )
-                    if not await interactive_login(client):
-                        return None
+        # Get preferred network from config if not already set
+        if not client._api.preferred_network_id:
+            preferred_network_id = get_preferred_network()
+            if preferred_network_id:
+                client.set_preferred_network(preferred_network_id)
 
-                # Get preferred network from config if not already set
-                if not client._api.preferred_network_id:
-                    preferred_network_id = get_preferred_network()
-                    if preferred_network_id:
-                        client.set_preferred_network(preferred_network_id)
-
-                return await func(client, *args, **kwargs)
-
-        return asyncio.run(run_with_client())
-
-    return cast(F, wrapper)
+        return await func(client)
 
 
 def confirm_action(message: str) -> bool:
