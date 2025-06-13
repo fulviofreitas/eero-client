@@ -1,21 +1,23 @@
 """Utility functions for the Eero CLI."""
 
+import asyncio
 import json
 import os
 import sys
+from functools import wraps
 from pathlib import Path
-from typing import Optional
+from typing import Any, Callable, Dict, Optional, TypeVar, cast
 
-import click
+import typer
 from rich.console import Console
 from rich.prompt import Confirm, Prompt
-from rich.status import Status
 
 from ..client import EeroClient
 from ..exceptions import EeroException
+from .auth import interactive_login
 
-# Create console for rich output
-console = Console()
+# Type for async functions that accept an EeroClient
+F = TypeVar("F", bound=Callable[..., Any])
 
 
 def get_config_dir() -> Path:
@@ -33,15 +35,6 @@ def get_config_dir() -> Path:
     return config_dir
 
 
-def get_cookie_file() -> Path:
-    """Get the cookie file path.
-
-    Returns:
-        Path to the cookie file
-    """
-    return get_config_dir() / "cookies.json"
-
-
 def get_config_file() -> Path:
     """Get the config file path.
 
@@ -51,7 +44,7 @@ def get_config_file() -> Path:
     return get_config_dir() / "config.json"
 
 
-def load_config() -> dict:
+def load_config() -> Dict[str, Any]:
     """Load configuration from file.
 
     Returns:
@@ -65,7 +58,7 @@ def load_config() -> dict:
         return {}
 
 
-def save_config(config: dict) -> None:
+def save_config(config: Dict[str, Any]) -> None:
     """Save configuration to file.
 
     Args:
@@ -97,49 +90,45 @@ def set_preferred_network(network_id: str) -> None:
     save_config(config)
 
 
-async def run_with_client(func, *args, **kwargs):
-    """Run a function with an authenticated client.
+def with_eero_client(func: F) -> F:
+    """Decorator to run a function with an authenticated EeroClient.
 
     Args:
-        func: Async function to run with client
-        *args: Arguments to pass to the function
-        **kwargs: Keyword arguments to pass to the function
-
-    Returns:
-        Result of the function call
-    """
-    async with EeroClient(cookie_file=str(get_cookie_file())) as client:
-        if not client.is_authenticated:
-            from .auth import interactive_login
-
-            if not await interactive_login(client):
-                return None
-
-        return await func(client, *args, **kwargs)
-
-
-def handle_client_exceptions(func):
-    """Decorator to handle common client exceptions.
-
-    Args:
-        func: Function to decorate
+        func: Async function to decorate that accepts an EeroClient as first arg
 
     Returns:
         Decorated function
     """
 
-    @click.pass_context
-    def wrapper(ctx, *args, **kwargs):
-        try:
-            return func(ctx, *args, **kwargs)
-        except EeroException as ex:
-            console.print(f"[bold red]Error:[/bold red] {ex}")
-            sys.exit(1)
-        except Exception as ex:
-            console.print(f"[bold red]Unexpected error:[/bold red] {ex}")
-            sys.exit(1)
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        ctx = typer.Context.get_current()
+        console = ctx.obj.get("console", Console())
+        cookie_file = ctx.obj.get("cookie_file")
+        use_keyring = ctx.obj.get("use_keyring", True)
 
-    return wrapper
+        async def run_with_client():
+            async with EeroClient(
+                cookie_file=cookie_file, use_keyring=use_keyring
+            ) as client:
+                if not client.is_authenticated:
+                    console.print(
+                        "[bold yellow]Not authenticated. Please login.[/bold yellow]"
+                    )
+                    if not await interactive_login(client):
+                        return None
+
+                # Get preferred network from config if not already set
+                if not client._api.preferred_network_id:
+                    preferred_network_id = get_preferred_network()
+                    if preferred_network_id:
+                        client.set_preferred_network(preferred_network_id)
+
+                return await func(client, *args, **kwargs)
+
+        return asyncio.run(run_with_client())
+
+    return cast(F, wrapper)
 
 
 def confirm_action(message: str) -> bool:

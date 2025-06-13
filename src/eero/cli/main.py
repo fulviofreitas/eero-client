@@ -6,9 +6,20 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+import click
 import typer
 from rich.console import Console
 from rich.logging import RichHandler
+
+from ..client import EeroClient
+from ..exceptions import EeroException
+from .auth import login_commands, logout_command, resend_code_command
+from .devices import devices_commands
+from .eeros import eeros_commands
+from .guest import guest_network_commands
+from .networks import networks_commands
+from .profiles import profiles_commands
+from .speedtest import speedtest_command
 
 # Create console for rich output
 console = Console()
@@ -28,15 +39,6 @@ app = typer.Typer(
     add_completion=True,
     rich_markup_mode="rich",
 )
-
-# Import subcommands modules here to avoid circular imports
-from .auth import login_commands
-from .devices import devices_commands
-from .eeros import eeros_commands
-from .guest import guest_network_commands
-from .networks import networks_commands
-from .profiles import profiles_commands
-from .speedtest import speedtest_command
 
 # Add subcommands
 app.add_typer(login_commands, name="auth", help="Authentication commands")
@@ -118,8 +120,11 @@ def run():
     """Run the CLI application."""
     try:
         app()
-    except Exception as ex:
+    except EeroException as ex:
         console.print(f"[bold red]Error:[/bold red] {ex}")
+        sys.exit(1)
+    except Exception as ex:
+        console.print(f"[bold red]Unexpected error:[/bold red] {ex}")
         if logging.getLogger().level == logging.DEBUG:
             console.print_exception()
         sys.exit(1)
