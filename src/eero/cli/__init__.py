@@ -1,0 +1,65 @@
+"""Command-line interface for Eero client."""
+
+import logging
+import sys
+
+import click
+
+from .auth import login, logout, resend_code
+from .devices import block_device, device, devices, rename_device
+from .eeros import eero, eeros, reboot
+from .guest import guest_network
+from .networks import network, networks, set_network
+from .profiles import pause_profile, profile, profiles
+from .speedtest import speedtest
+
+
+@click.group()
+@click.option("--debug", is_flag=True, help="Enable debug logging")
+def cli(debug: bool):
+    """Eero network management command-line tool."""
+    if debug:
+        logging.basicConfig(level=logging.DEBUG)
+    else:
+        logging.basicConfig(level=logging.WARNING)
+
+
+# Register all commands
+cli.add_command(login, name="login")
+cli.add_command(logout, name="logout")
+cli.add_command(resend_code, name="resend-code")
+
+cli.add_command(networks, name="networks")
+cli.add_command(network, name="network")
+cli.add_command(set_network, name="set-network")
+
+cli.add_command(eeros, name="eeros")
+cli.add_command(eero, name="eero")
+cli.add_command(reboot, name="reboot")
+
+cli.add_command(devices, name="devices")
+cli.add_command(device, name="device")
+cli.add_command(rename_device, name="rename-device")
+cli.add_command(block_device, name="block-device")
+
+cli.add_command(profiles, name="profiles")
+cli.add_command(profile, name="profile")
+cli.add_command(pause_profile, name="pause-profile")
+
+cli.add_command(guest_network, name="guest-network")
+cli.add_command(speedtest, name="speedtest")
+
+
+def main():
+    """Main entry point for the CLI."""
+    try:
+        cli()
+    except Exception as ex:
+        from .utils import console
+
+        console.print(f"[bold red]Error:[/bold red] {ex}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
